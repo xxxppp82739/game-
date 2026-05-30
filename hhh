@@ -1,0 +1,246 @@
+import { useEffect, useRef, useState } from "react";
+
+export default function CyberRunner() {
+  const canvasRef = useRef(null);
+  const [running, setRunning] = useState(false);
+  const [score, setScore] = useState(0);
+  const [best, setBest] = useState(Number(localStorage.getItem("best") || 0));
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+
+    canvas.width = 420;
+    canvas.height = 700;
+
+    let player = { lane: 1, x: 210, y: 580 };
+    const lanes = [120, 210, 300];
+
+    let obstacles = [];
+    let coins = [];
+    let particles = [];
+    let tick = 0;
+    let speed = 4;
+    let alive = true;
+
+    function drawBackground() {
+      const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      grad.addColorStop(0, "#12002b");
+      grad.addColorStop(0.5, "#05010a");
+      grad.addColorStop(1, "#000000");
+
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // moving grid floor
+      ctx.strokeStyle = "rgba(0,255,255,0.08)";
+      ctx.lineWidth = 1;
+
+      let offset = (tick * speed) % 40;
+
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y + offset);
+        ctx.lineTo(canvas.width, y + offset);
+        ctx.stroke();
+      }
+
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+    }
+
+    function drawPlayer() {
+      ctx.save();
+
+      // glow
+      ctx.shadowBlur = 25;
+      ctx.shadowColor = "#ff2bd6";
+
+      ctx.fillStyle = "#ff2bd6";
+      ctx.fillRect(player.x - 10, player.y - 10, 20, 20);
+
+      // inner core
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(player.x - 4, player.y - 4, 8, 8);
+
+      ctx.restore();
+    }
+
+    function drawObstacles() {
+      obstacles.forEach((o) => {
+        ctx.save();
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = "#ff003c";
+        ctx.fillStyle = "#ff003c";
+        ctx.fillRect(o.x - 12, o.y, 25, 25);
+        ctx.restore();
+      });
+    }
+
+    function drawCoins() {
+      coins.forEach((c) => {
+        ctx.save();
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = "#ffe600";
+        ctx.fillStyle = "#ffe600";
+
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      });
+    }
+
+    function drawParticles() {
+      particles.forEach((p) => {
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.alpha;
+        ctx.fillRect(p.x, p.y, 3, 3);
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function spawn() {
+      if (tick % 35 === 0) {
+        obstacles.push({
+          x: lanes[Math.floor(Math.random() * 3)],
+          y: -20,
+        });
+      }
+
+      if (tick % 55 === 0) {
+        coins.push({
+          x: lanes[Math.floor(Math.random() * 3)],
+          y: -20,
+        });
+      }
+    }
+
+    function updateParticles() {
+      particles.forEach((p, i) => {
+        p.y += p.vy;
+        p.x += p.vx;
+        p.alpha -= 0.02;
+        if (p.alpha <= 0) particles.splice(i, 1);
+      });
+    }
+
+    function loop() {
+      if (!alive) return;
+
+      tick++;
+      speed += 0.002;
+
+      drawBackground();
+
+      spawn();
+
+      obstacles.forEach((o) => (o.y += speed));
+      coins.forEach((c) => (c.y += speed));
+
+      // collisions
+      obstacles.forEach((o) => {
+        if (Math.abs(o.x - player.x) < 18 && Math.abs(o.y - player.y) < 18) {
+          gameOver();
+        }
+      });
+
+      coins.forEach((c, i) => {
+        if (Math.abs(c.x - player.x) < 18 && Math.abs(c.y - player.y) < 18) {
+          setScore((s) => s + 10);
+
+          // particle burst
+          for (let j = 0; j < 10; j++) {
+            particles.push({
+              x: c.x,
+              y: c.y,
+              vx: (Math.random() - 0.5) * 3,
+              vy: (Math.random() - 0.5) * 3,
+              alpha: 1,
+              color: "#ffe600",
+            });
+          }
+
+          coins.splice(i, 1);
+        }
+      });
+
+      drawObstacles();
+      drawCoins();
+      drawParticles();
+      drawPlayer();
+
+      updateParticles();
+
+      setScore((s) => s + 0.05);
+
+      requestAnimationFrame(loop);
+    }
+
+    function gameOver() {
+      alive = false;
+      setRunning(false);
+
+      const final = Math.floor(score);
+      if (final > best) {
+        localStorage.setItem("best", final);
+        setBest(final);
+      }
+    }
+
+    function move(e) {
+      if (!alive) return;
+
+      if (e.key === "ArrowLeft" && player.lane > 0) {
+        player.lane--;
+        player.x = lanes[player.lane];
+      }
+
+      if (e.key === "ArrowRight" && player.lane < 2) {
+        player.lane++;
+        player.x = lanes[player.lane];
+      }
+    }
+
+    window.addEventListener("keydown", move);
+
+    if (running) loop();
+
+    return () => window.removeEventListener("keydown", move);
+  }, [running, score, best]);
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white">
+      <h1 className="text-3xl font-bold text-cyan-400 drop-shadow-lg">
+        NEON CYBER RUNNER
+      </h1>
+
+      <canvas
+        ref={canvasRef}
+        className="mt-4 border border-cyan-500 shadow-lg shadow-cyan-500/30"
+      />
+
+      <div className="mt-4 text-center">
+        <p className="text-lg">Score: {Math.floor(score)}</p>
+        <p className="text-yellow-300">Best: {best}</p>
+
+        {!running ? (
+          <button
+            onClick={() => setRunning(true)}
+            className="mt-3 px-5 py-2 bg-pink-500 hover:bg-pink-600 rounded"
+          >
+            Start Game
+          </button>
+        ) : (
+          <p className="text-green-400 mt-2">RUNNING...</p>
+        )}
+      </div>
+    </div>
+  );
+}
